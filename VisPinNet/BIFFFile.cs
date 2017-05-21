@@ -22,32 +22,11 @@ namespace VPT
         {
             Buffer = B;
         }
-
-        //Is this a little off-standard?
-        bool ischunkcode(String S)
-        {
-            if (S == "CODE") return true;
-            return false;
-        }
-
+        
         //Delegate used to call IterateChunks
         public delegate void BlowChunks(string code, byte[] content);
 
-        //Create a hash of all of the DATA (but not the sizes).
-        public void Hash(ref HashAlgorithm A)
-        {
-            IterateChunks(buildhash,A);            
-        }
-
-        Object m_IterateObject = null;
-
-        void buildhash(String S, byte[] arr)
-        {
-            HashAlgorithm HA = (HashAlgorithm)m_IterateObject;
-            byte[] b = Encoding.ASCII.GetBytes(S);
-            HA.TransformBlock(b,0,4,null,0);
-            HA.TransformBlock(arr, 0, arr.Length, null, 0);
-        }
+        Object m_IterateObject = null;        
 
         //Iterate through the data, calling the callback function on each chunk.
         public void IterateChunks(BlowChunks Callback, Object cb = null)
@@ -62,35 +41,53 @@ namespace VPT
             {
                 string ChunkName = Encoding.ASCII.GetString(Buffer, indx + 4, 4);
                 
-                byte[] Buf = new byte[chunklen];
-                int offset = 0;
-                if (chunklen == 4) 
+                byte[] Buf = new byte[chunklen-4];
+                int offset = 8;
+                if (chunklen == 4)
                 {
-                    if (ChunkName == "ENDB")
+                    
+                    //Console.WriteLine(ChunkName);
+                    if (ChunkName == "CODE")
                     {
-                        Callback(ChunkName, Buf);
-                        indx += 8;
-                        continue;                 
+                        //This is a bit of an oddity - read the length AGAIN.
+                        int newchunklen = BitConverter.ToInt32(Buffer, indx+8);
+
+                        chunklen = newchunklen;
+                        offset = 12;
+                        Buf = new byte[newchunklen];
                     }
-                    int RealCount = 0;                    
-                    for(int q= indx;q< mx;q++)
+                    else
                     {
-                        if ((Buffer[q-3] == 'E') && (Buffer[q - 2] == 'N') && (Buffer[q - 1] == 'D') && (Buffer[q] == 'B'))
+                        if (ChunkName == "FONT")
                         {
-                            RealCount = (q - 4) - (indx + 8);
+                            //Fonts are really odd.                            
+                            int newchunklen = (Buffer[indx+17] << 8) | Buffer[indx+18];                            
+
+                            chunklen = newchunklen;
+                            offset = 19;
+                            Buf = new byte[newchunklen];
                         }
-                    }
-                    chunklen = RealCount+1;
-                    Buf = new byte[chunklen];                    
+                        else
+                        {
+                            chunklen -= 4;
+                        }
+                    }                    
                 }
+                else
+                {
+                    chunklen -= 4;
+                    //offset = 8;
+                }
+
                 for (int x = 0; x < chunklen; x++)
                 {
-                    Buf[x] = Buffer[x + indx + 8];
+                    Buf[x] = Buffer[x + indx + offset];
                 }
 
                 Callback(ChunkName, Buf);
 
-                indx += chunklen + 4;
+                indx += chunklen + offset;
+                if (indx == mx) break;
                
                 chunklen = BitConverter.ToInt32(Buffer, indx);
             }
@@ -147,7 +144,7 @@ namespace VPT
                 if (ChunkName == chunk)
                 {
                     byte[] Buf = new byte[chunklen - 4];
-                    if ((ischunkcode(ChunkName)) && (chunklen == 4))
+                    if ((ChunkName == "CODE") && (chunklen == 4))
                     {
 
                         for (int n = 0; n < 4; n++)
@@ -196,7 +193,7 @@ namespace VPT
                 }
                 else
                 {
-                    if ((ischunkcode(ChunkName)) && (chunklen == 4))
+                    if ((ChunkName == "CODE") && (chunklen == 4))
                     {
                         int RealCount = BitConverter.ToInt32(Buffer, indx + 8);
                         chunklen = RealCount;

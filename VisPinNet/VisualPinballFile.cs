@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using OpenMcdf;
 using System.Security.Cryptography;
+using HashLib;
 
 namespace VPT
 {
@@ -146,6 +147,26 @@ namespace VPT
                     Convert = "Bottom";
                     Value = BitConverter.ToInt32(Content,0).ToString();
                     break;
+                case "SEDT":
+                    Convert = "Total Objects";
+                    Value = BitConverter.ToInt32(Content, 0).ToString();
+                    break;
+                case "SSND":
+                    Convert = "Total Sounds";
+                    Value = BitConverter.ToInt32(Content, 0).ToString();
+                    break;
+                case "SIMG":
+                    Convert = "Total Images";
+                    Value = BitConverter.ToInt32(Content, 0).ToString();
+                    break;
+                case "SFNT":
+                    Convert = "Total Fonts";
+                    Value = BitConverter.ToInt32(Content, 0).ToString();
+                    break;
+                case "SCOL":
+                    Convert = "Total Collections";
+                    Value = BitConverter.ToInt32(Content, 0).ToString();
+                    break;
 
             }
             if (Convert != "")
@@ -267,192 +288,90 @@ namespace VPT
             }
         }
 
-        //Temporary class, used to determine the correct order for generating the
-        //  MAC SHA hash.
-        class OrderedItem : IComparable<OrderedItem>
-        {
-            public CFItem File;
-            public int BaseScore;
-            public string Name;
-
-            public OrderedItem(CFItem I)
-            {
-                Name = I.Name;
-                BaseScore = -1;
-                File = I;
-                switch (Name)
-                {                    
-                    case "Version":
-                        BaseScore = 0;
-                        break;
-                    case "TableInfo":
-                        BaseScore = 1;
-                        break;
-                    case "TableName":
-                        BaseScore = 10;
-                        break;
-                    case "AuthorName":
-                        BaseScore = 11;
-                        break;
-                    case "TableVersion":
-                        BaseScore = 12;
-                        break;
-                    case "ReleaseDate":
-                        BaseScore = 13;
-                        break;
-                    case "AuthorEmail":
-                        BaseScore = 14;
-                        break;
-                    case "AuthorWebSite":
-                        BaseScore = 15;
-                        break;
-                    case "TableBlurb":
-                        BaseScore = 16;
-                        break;
-                    case "TableDescription":
-                        BaseScore = 17;
-                        break;
-                    case "TableRules":
-                        BaseScore = 18;
-                        break;
-                    case "CustomInfoTags":
-                        BaseScore = 98;
-                        break;
-                    case "GameData":
-                        BaseScore = 99;
-                        break;
-                }
-
-                int ps = Name.IndexOf("GameItem");
-                if (ps != -1) BaseScore = 100;
-
-                ps = Name.IndexOf("Sound");
-                if (ps != -1) BaseScore = 200;
-
-                ps = Name.IndexOf("Image");
-                if (ps != -1) BaseScore = 300;
-
-                ps = Name.IndexOf("Font");
-                if (ps != -1) BaseScore = 400;
-
-                ps = Name.IndexOf("Collection");
-                if (ps != -1) BaseScore = 500;
-            }
-
-            public int CompareTo(OrderedItem other)
-            {
-                int cmp = BaseScore.CompareTo(other.BaseScore);
-                if (cmp != 0) return cmp;
-
-                return Name.CompareTo(other.Name);
-            }
-        }
-
         //Variables used in hashing.
         HashAlgorithm Hasher;
-        List<OrderedItem> HashOrder = null;
+        List<byte> HashData = new List<byte>();
 
-        //Called for every file - adds each file to the hashing order list.
-        void EstablishHashOrder(CFItem item)
+        void HashRawFile(string Name, ref HashAlgorithm Ha)
         {
-            if (item.IsStream == false) return;
-            if (item.Name == "MAC") return;
-
-            if (item.Name.IndexOf("Sound") != -1)
+            IList<CFItem> Lst = CF.GetAllNamedEntries(Name);
+            foreach (CFItem Itm in Lst)
             {
-                //Sound files aren't BIFFs and aren't hashed.
-                return;
-            }
-
-            HashOrder.Add(new OrderedItem(item));
+                byte[] buf = GetFile(Itm);
+                //Hasher.TransformBlock(buf, 0, buf.Length, null, 0);
+                HashData.AddRange(buf);                
+            }                        
         }
 
-        /*void CalculateHashOnStoredFile(CFItem item)
+        void HashChunk(String S, byte[] Val)
         {
-            if (item.IsStream == false) return;
-            if (item.Name == "MAC") return;
-
-            switch(item.Name)
-            {
-                case "TableName":                
-                case "AuthorName":
-                case "TableBlurb":
-                case "TableRules":
-                case "AuthorEmail":
-                case "ReleaseDate":
-                case "TableVersion":
-                case "AuthorWebSite":
-                case "TableDescription":
-                case "Version":
-                    byte[] buf = GetFile(item);
-                    Hasher.TransformBlock(buf, 0, buf.Length, null,0);
-                    return;                    
-            }
-
-            if (item.Name.IndexOf("Sound") != -1)
-            {
-                //Sound files aren't BIFFs and aren't hashed.
+            byte[] b = Encoding.ASCII.GetBytes(S);
+            HashData.AddRange(b);            
+            if (S == "FONT")
                 return;
-            }            
+            HashData.AddRange(Val);
+        }
 
-            BIFFFile F = GetBIFF(item);
-            if (item.Name.IndexOf("GameItem") != -1)
+        void HashBIFFFile(string Name, ref HashAlgorithm Ha)
+        {
+            IList<CFItem> Lst = CF.GetAllNamedEntries(Name);
+            foreach (CFItem Itm in Lst)
             {
-                //Gameitems have a rubbish Int32 at the start. Absorb it.
-                Hasher.TransformBlock(F.Buffer, 0, 4, null, 0);
-                byte[] NewBuffer = new byte[F.Buffer.Length - 4];
-                Buffer.BlockCopy(F.Buffer, 4, NewBuffer, 0, NewBuffer.Length);
-                F.Buffer = NewBuffer;
+                BIFFFile B = GetBIFF(Itm);                
+                B.IterateChunks(HashChunk);
             }
-            F.Hash(ref Hasher);
-        }*/
+        }
 
         //Calculates the MD5 hash for the VPT file.
         //Note that order is important.
         //In BIFF files, the chunk length is NOT added to the hash, although the chunk
-        //four-letter code and the contents of the chunk ARE.
-        //TODO - not working
+        //four-letter code and the contents of the chunk ARE.        
         void CalculateHash()
         {
-            MD5 md5 = new MD5CryptoServiceProvider();
-            Hasher = md5;
+            //MD5 md5 = new MD5CryptoServiceProvider();            
+            //Hasher = md5;
 
-            byte[] bf = Encoding.ASCII.GetBytes("Visual Pinball");
-            Hasher.TransformBlock(bf, 0, bf.Length, null, 0);
+            byte[] bf = Encoding.ASCII.GetBytes("Visual Pinball");            
+            HashData.AddRange(bf);
 
-            HashOrder = new List<OrderedItem>();
-            CF.RootStorage.VisitEntries(EstablishHashOrder,true);
-            HashOrder.Sort();
+            HashRawFile("Version",ref Hasher);
+            HashRawFile("TableName", ref Hasher);
+            HashRawFile("AuthorName", ref Hasher);
+            HashRawFile("TableVersion", ref Hasher);
+            HashRawFile("ReleaseDate", ref Hasher);
+            HashRawFile("AuthorEmail", ref Hasher);
+            HashRawFile("AuthorWebSite", ref Hasher);
+            HashRawFile("TableBlurb", ref Hasher);
+            HashRawFile("TableDescription", ref Hasher);
+            HashRawFile("TableRules", ref Hasher);
+            HashRawFile("Screenshot", ref Hasher);
+           
+            HashBIFFFile("CustomInfoTags", ref Hasher);
+            HashBIFFFile("GameData", ref Hasher);
 
-            foreach(OrderedItem OI in HashOrder)
+            //Hasher.TransformFinalBlock(new byte[0], 0, 0);
+
+            int Ttl = Int32.Parse(Properties["Total Objects"]);
+            for (int x= 0;x< Ttl;x++)
             {
-                if (OI.BaseScore == -1)
+                IList<CFItem> Lstx = CF.GetAllNamedEntries("GameItem" + x);
+                foreach (CFItem Itm in Lstx)
                 {
-                    continue;
-                }
-                if (OI.BaseScore < 100)
-                {
-                    byte[] buf = GetFile(OI.File);
-                    Hasher.TransformBlock(buf, 0, buf.Length,null,0);
-                    continue;
-                }
-
-                BIFFFile F = GetBIFF(OI.File);
-
-                if (OI.BaseScore == 100)
-                {
-                    Hasher.TransformBlock(F.Buffer, 0, 4, null, 0);
+                    BIFFFile F = GetBIFF(Itm);
+                    
                     byte[] NewBuffer = new byte[F.Buffer.Length - 4];
                     Buffer.BlockCopy(F.Buffer, 4, NewBuffer, 0, NewBuffer.Length);
                     F.Buffer = NewBuffer;
+                    F.IterateChunks(HashChunk);
+
+                    //Console.WriteLine("   Hashed GameItem BFF File: " + Itm.Name);
                 }
+            }            
 
-                F.Hash(ref Hasher);
-            }
+            var hash = HashFactory.Crypto.CreateMD2();
+            var result = hash.ComputeBytes(HashData.ToArray());            
 
-            Hasher.TransformFinalBlock(new byte[0], 0, 0);
-
-            MD5Hash = Hasher.Hash;
+            MD5Hash = result.GetBytes();
 
             IList<CFItem> Lst = CF.GetAllNamedEntries("MAC");
             foreach (CFItem Itm in Lst)
@@ -477,10 +396,8 @@ namespace VPT
         }
 
         public void Save(string Filename)
-        {
-            //ModifyScript is temporarily disabled while we figure out the damn hash.
-
-            //ModifyScript();   
+        {            
+            ModifyScript();   
             CalculateHash();          
             CF.Save(Filename);
             CF.Close();

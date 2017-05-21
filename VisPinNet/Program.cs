@@ -27,11 +27,9 @@ namespace VPTScriptPatcher
 
             VP.Rename("My New Table");
 
-            VP.Save("Output.vpt");
+            VP.Save("Output.vpt");                        
             Console.WriteLine("Saved VP Table With Hash: " + VP.CalculatedHash);
-            VP.Close();
-
-            //Console.WriteLine(VP.Script.Script);
+            VP.Close();           
 
             string VV = Console.ReadLine();
         }
