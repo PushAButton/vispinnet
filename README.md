@@ -1,6 +1,13 @@
 # VisPinNet
 Visual Pinball File Manipulation Library for .NET
 
-NOTE: This library is not fully working at this time.
+This is a simple library to interact with (ie. read and write) Visual Pinball table files.
 
-It is able to read data about a Visual Pinball table, but is not able to alter any data or save tables, as there is an issue generating a matching MD5 hash - although Visual Pinball can *read* the files this library creates, they report as corrupt as the hash doesn't match.
+The API is still incomplete as there are a number of new extensions to be added. However, with the existing features you should be able to...
+
+   1) Open a Visual Pinball file.
+   2) Read table metadata, such as name, author, ROM etc.
+   3) Read the table script file
+   4) Save changes (ie. script changes, table name etc.) to a Visual Pinball file.
+
+ The focus of the API will be to modify the table script to adjust options such as enabling and disabling important table options. 
