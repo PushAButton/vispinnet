@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Security.Cryptography;
 
-namespace VPT
+namespace VisPinNet
 {
     public class BIFFFile
     {
@@ -24,9 +24,10 @@ namespace VPT
         }
         
         //Delegate used to call IterateChunks
-        public delegate void BlowChunks(string code, byte[] content);
+        public delegate bool BlowChunks(string code, byte[] content);
 
-        Object m_IterateObject = null;        
+        Object m_IterateObject = null;
+        List<byte> Builder = null;
 
         //Iterate through the data, calling the callback function on each chunk.
         public void IterateChunks(BlowChunks Callback, Object cb = null)
@@ -84,7 +85,7 @@ namespace VPT
                     Buf[x] = Buffer[x + indx + offset];
                 }
 
-                Callback(ChunkName, Buf);
+                if (Callback(ChunkName, Buf) == false) return;
 
                 indx += chunklen + offset;
                 if (indx == mx) break;
@@ -93,45 +94,94 @@ namespace VPT
             }
         }
 
+        bool GetChunkCallback(string Code, byte[] Value)
+        {
+            if (Code == (string)m_IterateObject)
+            {
+                Builder = new List<byte>(Value);
+                return false;
+            }
+            return true;
+        }
+        
         public byte[] GetChunk(string Code)
         {
-            int indx = 0;
-            int mx = Buffer.Length;
+            IterateChunks(GetChunkCallback,Code);
+            return Builder.ToArray();
+        }
 
-            int chunklen = BitConverter.ToInt32(Buffer, indx);
-            while (indx < mx)
+        bool SetChunkCallback(string Code, byte[] Value)
+        {
+            SetChunkInfo SI = (SetChunkInfo)m_IterateObject;
+            
+            //Special formatting for CODE elements...
+            if (Code == "CODE")
             {
-                string ChunkName = Encoding.ASCII.GetString(Buffer, indx + 4, 4);
-                if (ChunkName == Code)
-                {
-                    byte[] Buf = new byte[chunklen];
-                    if ((chunklen == 4) && (ChunkName == "CODE"))
-                    {
-                        int RealCount = BitConverter.ToInt32(Buffer, indx + 8);
-                        chunklen = RealCount;
-                        Buf = new byte[chunklen];
-                    }
-                    for (int x = 0; x < chunklen; x++)
-                    {
-                        Buf[x] = Buffer[x + indx + 12];
-                    }
-                    return Buf;
+                if (Code == SI.code)
+                {                    
+                    byte[] chu = BitConverter.GetBytes((int)4);
+                    Builder.AddRange(chu);
+                    Builder.AddRange(Encoding.ASCII.GetBytes(Code));
+                    chu = BitConverter.GetBytes((int)SI.value.Length);
+                    Builder.AddRange(chu);
+                    Builder.AddRange(SI.value);
                 }
                 else
                 {
-                    if ((chunklen == 4) && (ChunkName == "CODE"))
-                    {                        
-                        int RealCount = BitConverter.ToInt32(Buffer, indx + 8);
-                        chunklen = RealCount;
-                    }
-                    indx += chunklen + 4;
+                    byte[] chu = BitConverter.GetBytes((int)4);
+                    Builder.AddRange(chu);
+                    Builder.AddRange(Encoding.ASCII.GetBytes(Code));
+                    chu = BitConverter.GetBytes((int)Value.Length);
+                    Builder.AddRange(chu);
+                    Builder.AddRange(Value);
                 }
-                chunklen = BitConverter.ToInt32(Buffer, indx);
+
+                return true;
             }
-            return null;
+
+            //Special formatting for FONT elements...
+            if (Code == "FONT")
+            {                
+                return true;
+            }
+
+            if (Code == SI.code)
+            {
+                byte[] chu = BitConverter.GetBytes((int)SI.value.Length + 4);
+                Builder.AddRange(chu);
+                Builder.AddRange(Encoding.ASCII.GetBytes(Code));
+                Builder.AddRange(SI.value);
+            }
+            else
+            {
+                byte[] chu = BitConverter.GetBytes((int)Value.Length + 4);
+                Builder.AddRange(chu);
+                Builder.AddRange(Encoding.ASCII.GetBytes(Code));
+                Builder.AddRange(Value);
+            }
+            return true;
+        }
+
+        class SetChunkInfo
+        {
+            public byte[] value;
+            public string code;
+            public SetChunkInfo(string C, byte[] b)
+            {
+                code = C;
+                value = b;
+            }
         }
 
         public void SetChunk(string chunk, byte[] value)
+        {
+            Builder = new List<byte>();
+            IterateChunks(SetChunkCallback, new SetChunkInfo(chunk,value));
+            Buffer = Builder.ToArray();
+            Builder = null;
+        }
+
+        /*public void SetChunk(string chunk, byte[] value)
         {
             int indx = 0;
             int mx = Buffer.Length;
@@ -248,6 +298,6 @@ namespace VPT
             }
 
             Buffer = NewBuffer.ToArray();
-        }
+        }*/
     }
 }

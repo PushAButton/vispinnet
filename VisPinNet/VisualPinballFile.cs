@@ -7,7 +7,7 @@ using OpenMcdf;
 using System.Security.Cryptography;
 using HashLib;
 
-namespace VPT
+namespace VisPinNet
 {
     //This will be used to store individual table elements (GameItems, Sounds etc.)
     public class TableElement
@@ -18,47 +18,9 @@ namespace VPT
     }
 
     //Used to manipulate the table script
-    public class TableScript
+    public class TableScript : VBAScript
     {
-        public string Script;
-        public void RemoveLine(string S)
-        {
-            int i = Script.IndexOf(S);
-            if (i != -1)
-            {
-                int v = Script.LastIndexOf('\r', i);
-                if (v != -1)
-                {
-                    int n = Script.IndexOf('\r', i);
-                    string Line = Script.Substring(v, n - v);
-                    //Console.WriteLine("Found Line: " + Line);
-                    bool Commented = false;
-                    for (int x = 0; x < Line.Length; x++)
-                    {
-                        if ((Line[x] == '\r') || (Line[x] == '\n') || (Line[x] == ' ') || (Line[x] == '\t')) continue;
-                        if (Line[x] == '\'')
-                        {
-                            Commented = true;
-                            break;
-                        }
-                        break;
-                    }
-
-                    while ((Script[v] == '\r') || (Script[v] == '\n') || (Script[v] == ' '))
-                        v++;
-
-                    if (Commented == false)
-                    {
-                        Script = Script.Substring(0, v) + "'" + Script.Substring(v);
-                    }
-                }
-            }
-        }
-
-        public void Substitute(string S, string N)
-        {
-            Script = Script.Replace(S, N);
-        }
+        
     }
 
     //Represents a single pinball table
@@ -70,6 +32,10 @@ namespace VPT
         public string Version = "";
         public string Author = "";
         public string Description = "";
+        public string ROM = "";
+        public string Controller = "";
+        public string ControllerVar = "";
+
         public TableScript Script;
         public Dictionary<string, string> Properties = new Dictionary<string, string>();
 
@@ -121,10 +87,48 @@ namespace VPT
             }
 
             Script = GetScript();
+
+            GetScriptDetails();
+        }
+
+        void GetScriptDetails()
+        {
+            //Find out the name of the controller, AND the variable its stored in.
+            VBALine[] L = Script.GetLinesContaining("CreateObject");
+            foreach(VBALine Ln in L)
+            {
+                if (Ln.Tokens[0] == "'")
+                {
+                    continue;
+                }
+
+                Controller = Ln.Tokens[Ln.TokenID + 1];
+                ControllerVar = Ln.Tokens[1];
+            }
+
+            //OK - grab the ROM name
+            L = Script.GetLinesContaining(".GameName");
+            foreach (VBALine Ln in L)
+            {
+                if (Ln.Tokens[0] == "'")
+                {
+                    continue;
+                }
+
+                ROM = Ln.Tokens[Ln.TokenID + 2];
+                if (ROM[0] != '"')
+                {
+                    //Lookup this value...
+                    ROM = Script.GetConstantValue(ROM).Replace("\"","");                    
+                }
+            }
+
+            
+
         }
 
         //Used to interpret the BIFF chunks found in the GameData file
-        void BlowChunk(string Code, byte[] Content)
+        bool BlowChunk(string Code, byte[] Content)
         {
             string Convert = "";
             string Value = "";
@@ -173,6 +177,7 @@ namespace VPT
             {
                 Properties.Add(Convert, Value);
             }
+            return true;
         }
 
         public float VPVersion { get { return m_VPVersion; } }
@@ -257,19 +262,15 @@ namespace VPT
         void WriteUnicodeTextFile(string S, CFItem Itm)
         {
             CFStream Strm = (CFStream)Itm;
-            byte[] Content = Encoding.Unicode.GetBytes(S);            
-            Strm.Write(Content, 0);
-            Strm.Resize(Content.Length);            
-            //Strm.SetData(Content);
+            byte[] Content = Encoding.Unicode.GetBytes(S);
+            Strm.SetData(Content);                   
         }
 
         //Writes binary to storage
         void WriteBinaryFile(byte[] b, CFItem Itm)
         {
-            CFStream Strm = (CFStream)Itm;            
-            Strm.Write(b, 0);
-            Strm.Resize(b.Length);
-            //Strm.SetData(Content);
+            CFStream Strm = (CFStream)Itm;
+            Strm.SetData(b);            
         }
 
         //Saves a modified script back to the GameData BIFF file.
@@ -283,8 +284,7 @@ namespace VPT
                 
                 CFStream Strm = (CFStream)Itm;
                 byte[] Buf = F.GetBuffer();
-                Strm.Write(Buf, 0);
-                Strm.Resize(Buf.Length);
+                Strm.SetData(Buf);                             
             }
         }
 
@@ -303,13 +303,14 @@ namespace VPT
             }                        
         }
 
-        void HashChunk(String S, byte[] Val)
+        bool HashChunk(String S, byte[] Val)
         {
             byte[] b = Encoding.ASCII.GetBytes(S);
             HashData.AddRange(b);            
             if (S == "FONT")
-                return;
+                return true;
             HashData.AddRange(Val);
+            return true;
         }
 
         void HashBIFFFile(string Name, ref HashAlgorithm Ha)
@@ -324,8 +325,10 @@ namespace VPT
 
         //Calculates the MD5 hash for the VPT file.
         //Note that order is important.
+
         //In BIFF files, the chunk length is NOT added to the hash, although the chunk
-        //four-letter code and the contents of the chunk ARE.        
+        //four-letter code and the contents of the chunk ARE.    
+            
         void CalculateHash()
         {
             //MD5 md5 = new MD5CryptoServiceProvider();            
@@ -366,10 +369,29 @@ namespace VPT
 
                     //Console.WriteLine("   Hashed GameItem BFF File: " + Itm.Name);
                 }
-            }            
+            }
+
+            Ttl = Int32.Parse(Properties["Total Collections"]);
+            for (int x = 0; x < Ttl; x++)
+            {
+                IList<CFItem> Lstx = CF.GetAllNamedEntries("Collection" + x);
+                foreach (CFItem Itm in Lstx)
+                {
+                    BIFFFile F = GetBIFF(Itm);
+                    
+                    F.IterateChunks(HashChunk);
+
+                    //Console.WriteLine("   Hashed GameItem BFF File: " + Itm.Name);
+                }
+            }
 
             var hash = HashFactory.Crypto.CreateMD2();
-            var result = hash.ComputeBytes(HashData.ToArray());            
+            var result = hash.ComputeBytes(HashData.ToArray());
+
+            /*System.IO.BinaryWriter Wri = new System.IO.BinaryWriter(System.IO.File.Create("c:\\tmp\\hashb.bin"));
+            Wri.Write(HashData.ToArray(), 0, HashData.Count);
+            Wri.Flush();
+            Wri.Close();*/
 
             MD5Hash = result.GetBytes();
 
