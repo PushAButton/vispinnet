@@ -121,10 +121,7 @@ namespace VisPinNet
                     //Lookup this value...
                     ROM = Script.GetConstantValue(ROM).Replace("\"","");                    
                 }
-            }
-
-            
-
+            }         
         }
 
         //Used to interpret the BIFF chunks found in the GameData file

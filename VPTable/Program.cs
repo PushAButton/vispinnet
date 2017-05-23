@@ -24,6 +24,7 @@ namespace VPTable
             bool hidedmd = false;
             bool cleardmd = false;
             bool showdmd = false;
+            bool cleanexit = false;
 
             string DisplayComponents = "nr";
             Dictionary<string, string> SetComponents = new Dictionary<string, string>();
@@ -34,6 +35,7 @@ namespace VPTable
               .Add("hidedmd", delegate (string v) { hidedmd = true; })
               .Add("showdmd", delegate (string v) { showdmd = true; })
               .Add("cleardmd", delegate (string v) { cleardmd = true; })
+              .Add("cleanexit", delegate (string v) { cleanexit = true; })
               .Add("show", delegate (string v) { /*DisplayComponents = v; */})
               .Add("h|?|help", delegate (string v) { help = v != null; })
               .Add("i|in=", delegate (string v) { infile = v; })
@@ -81,6 +83,17 @@ namespace VPTable
                 VP.Script.RemoveLine("\"dmd_width_x\"");
                 VP.Script.RemoveLine("\"dmd_width_y\"");
                 VP.Script.RemoveLine("\"rol\"");
+            }
+
+            if (cleanexit == true)
+            {
+                if (VP.Controller != "")
+                {
+                    if (VP.Script.GetLineContaining("Table1_Exit") == null)
+                    {
+                        VP.Script.Script += "\r\nSub Table1_Exit\r\n    " + VP.Controller + ".Stop\r\nEnd Sub\r\n";
+                    }
+                }
             }
 
             if (hidedmd == true)
