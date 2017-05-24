@@ -35,6 +35,7 @@ namespace VisPinNet
         public string ROM = "";
         public string Controller = "";
         public string ControllerVar = "";
+        public string ROMNameVar = "";
 
         public TableScript Script;
         public Dictionary<string, string> Properties = new Dictionary<string, string>();
@@ -89,6 +90,11 @@ namespace VisPinNet
             Script = GetScript();
 
             GetScriptDetails();
+
+            if (ROMNameVar == "")
+            {
+                ROMNameVar = "\"" + ROM + "\"";
+            }
         }
 
         void GetScriptDetails()
@@ -118,6 +124,7 @@ namespace VisPinNet
                 ROM = Ln.Tokens[Ln.TokenID + 2];
                 if (ROM[0] != '"')
                 {
+                    ROMNameVar = ROM;
                     //Lookup this value...
                     ROM = Script.GetConstantValue(ROM).Replace("\"","");                    
                 }

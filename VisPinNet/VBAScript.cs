@@ -53,9 +53,12 @@ namespace VisPinNet
             }
         }
 
-        public void Substitute(string S, string N)
+        public bool Substitute(string S, string N)
         {
+            string OldScript = Script;
             Script = Script.Replace(S, N);
+            if (Script != OldScript) return true;
+            return false;
         }
 
         public static List<String> SplitQuoted(string Str)
