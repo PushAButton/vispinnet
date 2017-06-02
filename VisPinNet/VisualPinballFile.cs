@@ -97,6 +97,17 @@ namespace VisPinNet
             }
         }
 
+        public BIFFFile GetGameDataFile()
+        {
+            IList<CFItem> Lst = CF.GetAllNamedEntries("GameData");
+            foreach (CFItem Itm in Lst)
+            {
+                BIFFFile F = GetBIFF(Itm);
+                return F;
+            }
+            return null;
+        }
+
         void GetScriptDetails()
         {
             //Find out the name of the controller, AND the variable its stored in.
@@ -109,7 +120,24 @@ namespace VisPinNet
                 }
 
                 Controller = Ln.Tokens[Ln.TokenID + 1];
+
+                bool Valid = false;
+                switch(Controller.ToLower())
+                {
+                    case "visual.pinmame":
+                    case "b2s.server":
+                        Valid = true;
+                        break;
+                }
+
+                if (Valid == false)
+                {
+                    Controller = "";
+                    continue;
+                }
+
                 ControllerVar = Ln.Tokens[1];
+                break;
             }
 
             //OK - grab the ROM name
@@ -205,6 +233,21 @@ namespace VisPinNet
             return new BIFFFile(buf);
         }
 
+        //Gets a BIFF file from storage
+        public BIFFFile GetBIFFFile(string Nm)
+        {
+            IList<CFItem> Lst = CF.GetAllNamedEntries(Nm);
+            foreach (CFItem Itm in Lst)
+            {
+                byte[] buf = new byte[Itm.Size];
+                CFStream Strm = (CFStream)Itm;
+                Strm.Read(buf, 0, (int)Itm.Size);
+
+                return new BIFFFile(buf);
+            }
+            return null;
+        }
+
         //Loads the script from GameData
         public TableScript GetScript()
         {
@@ -289,6 +332,17 @@ namespace VisPinNet
                 CFStream Strm = (CFStream)Itm;
                 byte[] Buf = F.GetBuffer();
                 Strm.SetData(Buf);                             
+            }
+        }
+
+        //Saves a modified script back file.
+        public void WriteFile(byte[] buf, string Name)
+        {
+            IList<CFItem> Lst = CF.GetAllNamedEntries(Name);
+            foreach (CFItem Itm in Lst)
+            {                
+                CFStream Strm = (CFStream)Itm;                
+                Strm.SetData(buf);
             }
         }
 
@@ -427,6 +481,11 @@ namespace VisPinNet
             CalculateHash();          
             CF.Save(Filename);
             CF.Close();
+        }
+
+        public GameItemCollection GetGameItems()
+        {
+            return new GameItemCollection(this);
         }
 
     }

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using VisPinNet;
+using VPTools;
 
 namespace VPTable
 {
@@ -40,68 +41,8 @@ namespace VPTable
             Console.WriteLine(" -cleanup: Includes 'cleardmd' and 'cleanup'");
         }
 
-        void ControllerSetting(string name, string value)
-        {
-            if (VP.Controller == "") return;
 
-            //Check to see if the controller setting already exists...
-            VBALine[] Lines = VP.Script.GetLinesContaining("." + name);            
-            foreach(VBALine L in Lines)
-            {
-                //OK - this line already exists. Now, determine if this is part of a 'With' block...
-                bool Commented = false;
-                if (L.Tokens[0][0] == '\'')
-                {
-                    Commented = true;
-                    L.Tokens[0] = L.Tokens[0].Substring(1);
-                }
-                if (L.Tokens[0][0] == '.')                
-                {
-                    //This is a 'With' block.
-                    if (value == "")
-                    {
-                        //Make sure this block isn't already commented.
-                        if (!Commented)
-                        {
-                            string Tmp = VP.Script.Script;
-                            VP.Script.Script = VP.Script.Script.Substring(0, L.StartPos) + VP.Script.Script.Substring(L.EndPos);
-                            if (Tmp == VP.Script.Script)
-                            {
-                                int qv = 0;
-                            }
-                        }
-                    }
-                    else
-                    {                                                
-                        string NewContent = VP.ControllerVar + "." + name + " = " + value;
-                        if (value == "") NewContent = "";
-                        VP.Script.Script = VP.Script.Script.Substring(0, L.StartPos) + NewContent + VP.Script.Script.Substring(L.EndPos);
-                    }
-                }
-                else
-                {
-                                        
-                }
-            }
-            if (Lines.Length == 0)
-            {
-                //There's no existing line - I'll have to add my own to INIT.
-
-                int ps = VP.Script.Script.IndexOf("_Init");
-                if (ps == -1)
-                {
-                    //This table doesn't have an init sub - make one.
-                    VP.Script.Script += "\r\nSub Table1_Init\r\n   With " + VP.ControllerVar + "\r\n      ." + name + " = " + value;
-                }
-                else
-                {
-                    //Add the call at the end of the init.
-                    int xs = VP.Script.Script.IndexOf("End Sub", ps);
-                    VP.Script.Script = VP.Script.Script.Substring(0, xs) + "\r\n" + VP.ControllerVar + "." + name + " = " + value + "\r\n" + VP.Script.Script.Substring(xs);
-                }
-            }
-        }
-
+        Toolbox TBx = null;
         VisualPinballTable VP = null;
 
         public void Run(string[] args)
@@ -118,6 +59,9 @@ namespace VPTable
             bool cleanexit = false;
             bool cleanup = false;
             bool verbose = false;
+            bool enableplunger = true;
+
+            bool GIEdit = false;
 
             string DisplayComponents = "nr";
             Dictionary<string, string> ControllerParams = new Dictionary<string, string>();
@@ -137,6 +81,7 @@ namespace VPTable
               .Add("i|in=", delegate (string v) { infile = v; })
               .Add("c|cab=", delegate (string v) { cabfile = v; })
               .Add("o|out=", delegate (string v) { outfile = v; })
+              .Add("plunger", delegate (string v) { enableplunger = true; })
               .Add("setname=", delegate (string v) { SetComponents.Add("name", v); })
               .Add("setrom=", delegate (string v) { SetComponents.Add("rom", v); });
 
@@ -146,12 +91,20 @@ namespace VPTable
                 return;
             }
 
-            bool FileChanges = false;
-
             List<string> extra = p.Parse(args);
+
+            if (infile == "")
+            {
+                Console.WriteLine("You must include an input file name (-i <filename>).");
+                return;
+            }
+
+            bool FileChanges = false;            
 
             VP = new VisualPinballTable();
             VP.Load(infile);
+
+            TBx = new Toolbox(VP);
 
             if (verbose == true) Console.WriteLine("Opened VP Table '" + VP.FullName + "'");
 
@@ -171,73 +124,50 @@ namespace VPTable
             {
                 if (KV.Key == "name")
                 {
-                    VP.Rename(KV.Value);
-                    FileChanges = true;
+                    TBx.RenameTable(KV.Value);
                 }
                 if (KV.Key == "rom")
                 {
-                    //Grab the line where the game name is set...
-                    VP.Script.Substitute("\"" + VP.ROM + "\"", "\"" + KV.Value + "\"");
-                    FileChanges = true;
+                    TBx.ChangeRom(KV.Value);
                 }
             }
 
             if ((cleardmd == true) || (cleanup == true))
-            {                
-                ControllerSetting("Games(" + VP.ROMNameVar + ").Settings.Value(\"rol\")", "");
-                ControllerSetting("Games(" + VP.ROMNameVar + ").Settings.Value(\"dmd_pos_x\")", "");
-                ControllerSetting("Games(" + VP.ROMNameVar + ").Settings.Value(\"dmd_pos_y\")", "");
-                ControllerSetting("Games(" + VP.ROMNameVar + ").Settings.Value(\"dmd_width\")", "");
-                ControllerSetting("Games(" + VP.ROMNameVar + ").Settings.Value(\"dmd_height\")", "");
-                FileChanges = true;
+            {
+                TBx.ClearDMDSettings();
             }
 
             if ((cleanexit == true) || (cleanup == true))
             {
-                if (VP.Controller != "")
-                {
-                    VBALine Ln = VP.Script.GetLineContaining("Table1_Exit");
-                    if (Ln == null)
-                    {
-                        VP.Script.Script += "\r\nSub Table1_Exit\r\n    " + VP.ControllerVar + ".Stop\r\nEnd Sub\r\n";
-                    }
-                    else
-                    {
-                        if (VP.Script.GetLineContaining(VP.Controller + ".Stop") == null)
-                        {
-                            int n = VP.Script.Script.IndexOf("End Sub", Ln.EndPos);
-                            if (n != -1)
-                            {
-                                VP.Script.Script = VP.Script.Script.Substring(0, n) + "\r\n   " + VP.ControllerVar + ".Stop\r\n" + VP.Script.Script.Substring(n);
-                            }
-                        }
-                    }
-                    FileChanges = true;
-                }
+                TBx.ControllerExit();
             }
 
             if (hidedmd == true)
             {
-                if (!VP.Script.Substitute(".Hidden = 0", ".Hidden = 1"))
-                {
-                    //We need to add this line in the code.
-                }
-                FileChanges = true;
+                TBx.HideDMD();
             }
 
             if (showdmd == true)
             {
-                if (VP.Script.Substitute(".Hidden = 1", ".Hidden = 0")) FileChanges = true;
+                TBx.ShowDMD();
             }
 
             if (enableb2s == true)
             {
-                VP.Script.Substitute("VPinMAME.Controller", "B2S.Server");
-                VP.Controller = "B2S.Server";
-                FileChanges = true;
+                TBx.EnableB2S();
             }
 
-            if (FileChanges == true)
+            if (enableplunger == true)
+            {
+                TBx.EnableMechanicalPlunger();
+            }
+
+            foreach(string S in TBx.Log)
+            {
+                Console.WriteLine(S);
+            }
+
+            if (TBx.ChangesMade == true)
             {
                 if (outfile != "")
                 {
@@ -251,12 +181,6 @@ namespace VPTable
                     }
                     VP.Save(infile);
                 }
-                if (verbose == true)
-                {
-
-                }
-
-
             }
             VP.Close();
 

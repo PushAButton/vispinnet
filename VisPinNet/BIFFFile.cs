@@ -107,6 +107,7 @@ namespace VisPinNet
         public byte[] GetChunk(string Code)
         {
             IterateChunks(GetChunkCallback,Code);
+            if (Builder == null) return null;
             return Builder.ToArray();
         }
 
